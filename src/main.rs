@@ -1,9 +1,12 @@
-use std::{collections::HashMap, path::PathBuf};
+use std::path::PathBuf;
 
+use cargo_manifest::Manifest;
 use clap::{Args, Parser};
 
-use serde::{Deserialize, Serialize};
-use tauri_bundler::*;
+use anyhow::Result;
+
+// use serde::{Deserialize, Serialize};
+use tauri_bundler::{BundleBinary, PackageSettings, SettingsBuilder};
 
 use anyhow::*;
 
@@ -48,9 +51,9 @@ struct Furnace {
     #[arg(long, value_name = "TRIPLE")]
     pub target: Option<String>,
 
-    ///Directory for all generated artifacts
-    #[arg(long, value_name = "DIRECTORY")]
-    pub target_dir: Option<PathBuf>,
+    ///Directory for all generated artifacts - the bundled artifact will be in the directory (target_dir)/furnace/(the artifact name)
+    #[arg(long, value_name = "DIRECTORY", default_value = "target/")]
+    pub target_dir: PathBuf,
 
     ///Path to Cargo.toml
     #[arg(long, value_name = "PATH")]
@@ -60,7 +63,7 @@ struct Furnace {
     #[arg(long, value_name = "PATH", default_value = "Furnace.toml")]
     pub config_path: Option<PathBuf>,
 
-    ///whether to build the binary or not. Default true
+    ///Whether to build the binary or not. ~~Default true~~
     #[arg(long)]
     pub build: bool,
 
@@ -68,14 +71,19 @@ struct Furnace {
     #[arg(long)]
     pub no_default_features: bool,
 
-    /// Space or comma separated list of bundles to package.
-    ///
-    /// Each bundle must be one of `deb`, `appimage`, `msi`, `app` or `dmg` on MacOS and `updater` on all platforms.
-    /// If `none` is specified, the bundler will be skipped.
-    ///
-    /// Note that the `updater` bundle is not automatically added so you must specify it if the updater is enabled.
-    #[clap(short, long, action = clap::ArgAction::Append, num_args(0..))]
-    pub bundles: Option<Vec<String>>,
+    //Whether this is a workspace or not. Default false.
+    #[arg(long)]
+    pub workspace: bool,
+    // // #[arg(long, short = 'o', default_value = "target/cooked")]
+    // // pub out_dir: Option<PathBuf>,
+    // /// Space or comma separated list of bundles to package.
+    // ///
+    // /// Each bundle must be one of `deb`, `appimage`, `msi`, `app` or `dmg` on MacOS and `updater` on all platforms.
+    // /// If `none` is specified, the bundler will be skipped.
+    // ///
+    // /// Note that the `updater` bundle is not automatically added so you must specify it if the updater is enabled.
+    // #[clap(short, long, action = clap::ArgAction::Append, num_args(0..))]
+    // pub bundles: Option<Vec<String>>,
 }
 
 fn build_project_if_unbuilt(furnace: &Furnace) -> Result<()> {
@@ -96,6 +104,9 @@ fn build_project_if_unbuilt(furnace: &Furnace) -> Result<()> {
                 .collect::<String>()
         ));
     }
+
+    args.push(format!("--target-dir={}", furnace.target_dir.display()));
+
     if let Some(bin) = &furnace.bin {
         args.push(format!("--bin={bin}"));
     }
@@ -138,223 +149,120 @@ fn build_project_if_unbuilt(furnace: &Furnace) -> Result<()> {
     Ok(())
 }
 
-/// The bundle settings of the BuildArtifact we're bundling.
-#[derive(Debug, Default, Deserialize, Serialize)]
-#[serde(remote = "BundleSettings")]
-pub struct FurnaceBundleSettings {
-    /// the app's identifier.
-    pub identifier: Option<String>,
-    /// The app's publisher. Defaults to the second element in the identifier string.
-    /// Currently maps to the Manufacturer property of the Windows Installer.
-    pub publisher: Option<String>,
-    /// the app's icon list.
-    pub icon: Option<Vec<String>>,
-    /// the app's resources to bundle.
-    ///
-    /// each item can be a path to a file or a path to a folder.
-    ///
-    /// supports glob patterns.
-    pub resources: Option<Vec<String>>,
-    /// the app's copyright.
-    pub copyright: Option<String>,
-    /// the app's category.
-    #[serde(with = "Option<FurnaceAppCategory>")]
-    pub category: Option<AppCategory>,
-    /// the app's short description.
-    pub short_description: Option<String>,
-    /// the app's long description.
-    pub long_description: Option<String>,
-    // Bundles for other binaries:
-    /// Configuration map for the apps to bundle.
-    #[serde(with = "Option<HashMap<String, FurnaceBundleSettings>>")]
-    pub bin: Option<HashMap<String, BundleSettings>>,
-    /// External binaries to add to the bundle.
-    ///
-    /// Note that each binary name should have the target platform's target triple appended,
-    /// as well as `.exe` for Windows.
-    /// For example, if you're bundling a sidecar called `sqlite3`, the bundler expects
-    /// a binary named `sqlite3-x86_64-unknown-linux-gnu` on linux,
-    /// and `sqlite3-x86_64-pc-windows-gnu.exe` on windows.
-    ///
-    /// Run `tauri build --help` for more info on targets.
-    ///
-    /// If you are building a universal binary for MacOS, the bundler expects
-    /// your external binary to also be universal, and named after the target triple,
-    /// e.g. `sqlite3-universal-apple-darwin`. See
-    /// <https://developer.apple.com/documentation/apple-silicon/building-a-universal-macos-binary>
-    pub external_bin: Option<Vec<String>>,
-    /// Debian-specific settings.
-    pub deb: DebianSettings,
-    /// MacOS-specific settings.
-    pub macos: MacOsSettings,
-    /// Windows-specific settings.
-    pub windows: WindowsSettings,
-}
+// struct FurnaceSettings {
 
-#[derive(Serialize, Deserialize, Debug)]
-#[serde(remote = "PackageSettings")]
-pub struct FurnacePackageSettings {
-    /// the package's product name.
-    pub name: Option<String>,
-    /// the package's version.
-    pub version: Option<String>,
-    /// the package's description.
-    pub description: Option<String>,
-    /// the package's homepage.
-    pub homepage: Option<String>,
-    /// the package's authors.
-    pub authors: Option<Vec<String>>,
-    /// the default binary to run.
-    pub default_run: Option<String>,
-}
-
-#[derive(Serialize, Deserialize, Debug)]
-#[serde(remote = "DebianSettings")]
-struct FurnaceDebianSettings {
-    // OS-specific settings:
-    /// the list of debian dependencies.
-    pub depends: Option<Vec<String>>,
-    /// List of custom files to add to the deb package.
-    /// Maps the path on the debian package to the path of the file to include (relative to the current working directory).
-    pub files: HashMap<PathBuf, PathBuf>,
-    /// Path to a custom desktop file Handlebars template.
-    ///
-    /// Available variables: `categories`, `comment` (optional), `exec`, `icon` and `name`.
-    ///
-    /// Default file contents:
-    /// ```text
-    #[doc = "[Desktop Entry]
-Categories={{categories}}
-{{#if comment}}
-Comment={{comment}}
-   {{/if}}
-Exec={{exec}}
-Icon={{icon}}
-Name={{name}}
-Terminal=false
-Type=Application"]
-    /// ```
-    pub desktop_template: Option<PathBuf>,
-}
-
-#[derive(Serialize, Deserialize, Debug)]
-#[serde(remote = "MacOsSettings")]
-struct FurnaceMacOsSettings {
-    /// MacOS frameworks that need to be bundled with the app.
-    ///
-    /// Each string can either be the name of a framework (without the `.framework` extension, e.g. `"SDL2"`),
-    /// in which case we will search for that framework in the standard install locations (`~/Library/Frameworks/`, `/Library/Frameworks/`, and `/Network/Library/Frameworks/`),
-    /// or a path to a specific framework bundle (e.g. `./data/frameworks/SDL2.framework`).  Note that this setting just makes tauri-bundler copy the specified frameworks into the OS X app bundle
-    /// (under `Foobar.app/Contents/Frameworks/`); you are still responsible for:
-    ///
-    /// - arranging for the compiled binary to link against those frameworks (e.g. by emitting lines like `cargo:rustc-link-lib=framework=SDL2` from your `build.rs` script)
-    ///
-    /// - embedding the correct rpath in your binary (e.g. by running `install_name_tool -add_rpath "@executable_path/../Frameworks" path/to/binary` after compiling)
-    pub frameworks: Option<Vec<String>>,
-    /// A version string indicating the minimum MacOS version that the bundled app supports (e.g. `"10.11"`).
-    /// If you are using this config field, you may also want have your `build.rs` script emit `cargo:rustc-env=MACOSX_DEPLOYMENT_TARGET=10.11`.
-    pub minimum_system_version: Option<String>,
-    /// The path to the LICENSE file for macOS apps.
-    /// Currently only used by the dmg bundle.
-    pub license: Option<String>,
-    /// The exception domain to use on the macOS .app bundle.
-    ///
-    /// This allows communication to the outside world e.g. a web server you're shipping.
-    pub exception_domain: Option<String>,
-    /// Code signing identity.
-    pub signing_identity: Option<String>,
-    /// Provider short name for notarization.
-    pub provider_short_name: Option<String>,
-    /// Path to the entitlements.plist file.
-    pub entitlements: Option<String>,
-    /// Path to the Info.plist file for the bundle.
-    pub info_plist_path: Option<PathBuf>,
-}
-
-// TODO: RIght now, these categories correspond to LSApplicationCategoryType
-// values for OS X.  There are also some additional GNOME registered categories
-// that don't fit these; we should add those here too.
-/// The possible app categories.
-/// Corresponds to `LSApplicationCategoryType` on macOS and the GNOME desktop categories on Debian.
-#[allow(missing_docs)]
-#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
-#[serde(remote = "AppCategory")]
-#[non_exhaustive]
-pub enum FurnaceAppCategory {
-    Business,
-    DeveloperTool,
-    Education,
-    Entertainment,
-    Finance,
-    Game,
-    ActionGame,
-    AdventureGame,
-    ArcadeGame,
-    BoardGame,
-    CardGame,
-    CasinoGame,
-    DiceGame,
-    EducationalGame,
-    FamilyGame,
-    KidsGame,
-    MusicGame,
-    PuzzleGame,
-    RacingGame,
-    RolePlayingGame,
-    SimulationGame,
-    SportsGame,
-    StrategyGame,
-    TriviaGame,
-    WordGame,
-    GraphicsAndDesign,
-    HealthcareAndFitness,
-    Lifestyle,
-    Medical,
-    Music,
-    News,
-    Photography,
-    Productivity,
-    Reference,
-    SocialNetworking,
-    Sports,
-    Travel,
-    Utility,
-    Video,
-    Weather,
-}
+// }
 
 fn main() -> Result<()> {
     let CargoCli::Furnace(args) = CargoCli::parse();
 
-    build_project_if_unbuilt(&args);
+    build_project_if_unbuilt(&args)?;
 
     println!("{:#?}", args);
 
-    let cwd = std::env::current_dir().unwrap();
+    // let furnace_config: FurnaceSettings = toml::from_str(
+    //     &std::fs::read_to_string(std::env!("CARGO_MANIFEST_DIR"))? + args.config_path);
 
-    let furnace_config: FurnaceSettings = toml::from_str(
-        &std::fs::read_to_string(std::env!("CARGO_MANIFEST_DIR"))? + args.config_path,
-    )?;
+    // Read config files hierarchically from the current directory, merge them,
+    // apply environment variables, and resolve relative paths.
+    let manifest = Manifest::from_path(args.manifest_path.unwrap_or("Cargo.toml".into()))?;
 
-    let settings = SettingsBuilder::new()
-        .bundle_settings(BundleSettings {
-            identifier: furnace_config.identifier,
-            publisher: furnace_config.publisher,
-            icon: todo!(),
-            resources: todo!(),
-            copyright: todo!(),
-            category: todo!(),
-            short_description: todo!(),
-            long_description: todo!(),
-            bin: todo!(),
-            external_bin: todo!(),
-            deb: todo!(),
-            macos: todo!(),
-            updater: todo!(),
-            windows: todo!(),
-        })
-        .package_settings(furnace_config.package)
+    let manifest_package = manifest
+        .package
+        .expect("cargo manifest must have a \"[package]\" field!");
+
+    let package = if args.workspace {
+        // PackageSettings {
+        //     product_name: package.name,
+        //     version: package.version,
+        //     description: package.description.unwrap_or(MaybeInherited::Local("".into())),
+        //     homepage: package.homepage,
+        //     authors: package.authors,
+        //     default_run: package.default_run,
+        // }
+
+        unreachable!()
+    } else {
+        PackageSettings {
+            product_name: manifest_package.name.clone(),
+            version: manifest_package.version.as_local().expect(
+                "Workspace derived config can only be used when --workspace flag is enabled.",
+            ),
+            description: manifest_package
+                .description
+                .map(|x| {
+                    x.as_local().expect(
+                    "Workspace derived config can only be used when --workspace flag is enabled.",
+                )
+                })
+                .unwrap_or("".into()),
+            homepage: manifest_package.homepage.map(|x| {
+                x.as_local().expect(
+                    "Workspace derived config can only be used when --workspace flag is enabled.",
+                )
+            }),
+            authors: manifest_package.authors.map(|x| {
+                x.as_local().expect(
+                    "Workspace derived config can only be used when --workspace flag is enabled.",
+                )
+            }),
+            default_run: manifest_package.default_run,
+        }
+    };
+
+    // let settings = SettingsBuilder::new()
+    //     .bundle_settings(BundleSettings {
+    //         identifier: furnace_config.identifier,
+    //         publisher: furnace_config.publisher,
+    //         icon: todo!(),
+    //         resources: todo!(),
+    //         copyright: todo!(),
+    //         category: todo!(),
+    //         short_description: todo!(),
+    //         long_description: todo!(),
+    //         bin: todo!(),
+    //         external_bin: todo!(),
+    //         deb: todo!(),
+    //         macos: todo!(),
+    //         updater: todo!(),
+    //         windows: todo!(),
+    //     })
+    //     .package_settings(furnace_config.package)
+    //     .build()?;
+
+    let bin_location: PathBuf = match args.target {
+        Some(target) => PathBuf::from(target),
+        None => {
+            // match args.profile {
+            //     Some(profile) => {
+
+            //         PathBuf::from(profile);
+
+            //     },
+            //     None => todo!(),
+            // }
+
+            PathBuf::new()
+        }
+    }
+    .join(match args.profile {
+        Some(profile) => PathBuf::from(profile),
+        None => PathBuf::from("debug"),
+    })
+    .join(PathBuf::from(manifest_package.name));
+
+    println!("{}",bin_location.display());
+
+    let settings_builder = SettingsBuilder::new();
+    let settings = settings_builder
+        .project_out_directory(args.target_dir)
+        .binaries(vec![
+            BundleBinary::new(bin_location.into_os_string().into_string().expect("OsString can't be converted into a String!"), true).set_src_path(Some("src".to_string()))
+        ])
+        .package_settings(package)
         .build()?;
+
+    println!("{settings:#?}");
 
     let bundle_paths = tauri_bundler::bundle_project(settings)?;
 
