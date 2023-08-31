@@ -101,3 +101,30 @@ These settings are used only when bundling `app` and `dmg` packages.
     }
   }
 }
+
+### Example `Cargo.toml`:
+
+```toml
+[package]
+name = "example"
+# ...other fields...
+
+[package.metadata.bundle]
+name = "ExampleApplication"
+identifier = "com.doe.exampleapplication"
+icon = ["32x32.png", "128x128.png", "128x128@2x.png"]
+version = "1.0.0"
+resources = ["assets", "images/**/*.png", "secrets/public_key.txt"]
+copyright = "Copyright (c) Jane Doe 2016. All rights reserved."
+category = "Developer Tool"
+short_description = "An example application."
+long_description = """
+Lorem ipsum dolor sit amet, consectetur adipiscing elit, sed do
+eiusmod tempor incididunt ut labore et dolore magna aliqua.  Ut
+enim ad minim veniam, quis nostrud exercitation ullamco laboris
+nisi ut aliquip ex ea commodo consequat.
+"""
+deb_depends = ["libgl1-mesa-glx", "libsdl2-2.0-0 (>= 2.0.5)"]
+osx_frameworks = ["SDL2"]
+osx_url_schemes = ["com.doe.exampleapplication"]
+```

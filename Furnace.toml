@@ -1,0 +1,18 @@
+[bundle]
+name = "Your Awesome App"
+version = "0.12345.0"
+identifier = "com.my.app"
+short_description = "An example application."
+long_description = """
+Lorem ipsum dolor sit amet, consectetur adipiscing elit, sed do
+eiusmod tempor incididunt ut labore et dolore magna aliqua.  Ut
+enim ad minim veniam, quis nostrud exercitation ullamco laboris
+nisi ut aliquip ex ea commodo consequat.
+"""
+icon = ["32x32.png", "128x128.png", "128x128@2x.png"]
+resources = ["assets", "images/**/*.png", "secrets/public_key.txt"]
+copyright = "Copyright (c) Jane Doe 2016. All rights reserved."
+category = "Developer Tool"
+deb = { depends = ["deb-dep1", "deb-dep-2"] }
+macos = { frameworks = ["SDL2"], minimum_system_version = 10.11, license = "./LICENSE" }
+# external_bin = {}

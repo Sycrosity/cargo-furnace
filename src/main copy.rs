@@ -1,9 +1,12 @@
-use std::{collections::HashMap, path::PathBuf};
+use std::path::PathBuf;
 
 use clap::{Args, Parser};
 
 use serde::{Deserialize, Serialize};
-use tauri_bundler::*;
+use tauri_bundler::{
+    bundle::{Settings, SettingsBuilder},
+    DebianSettings, BundleSettings,
+};
 
 use anyhow::*;
 
@@ -138,61 +141,76 @@ fn build_project_if_unbuilt(furnace: &Furnace) -> Result<()> {
     Ok(())
 }
 
-/// The bundle settings of the BuildArtifact we're bundling.
-#[derive(Debug, Default, Deserialize, Serialize)]
-#[serde(remote = "BundleSettings")]
-pub struct FurnaceBundleSettings {
-    /// the app's identifier.
+#[derive(Serialize, Deserialize, Debug)]
+struct FurnaceSettings {
+    pub package: FurnacePackageSettings,
+
     pub identifier: Option<String>,
-    /// The app's publisher. Defaults to the second element in the identifier string.
-    /// Currently maps to the Manufacturer property of the Windows Installer.
-    pub publisher: Option<String>,
-    /// the app's icon list.
-    pub icon: Option<Vec<String>>,
-    /// the app's resources to bundle.
-    ///
-    /// each item can be a path to a file or a path to a folder.
-    ///
-    /// supports glob patterns.
-    pub resources: Option<Vec<String>>,
-    /// the app's copyright.
-    pub copyright: Option<String>,
-    /// the app's category.
-    #[serde(with = "Option<FurnaceAppCategory>")]
-    pub category: Option<AppCategory>,
-    /// the app's short description.
+
     pub short_description: Option<String>,
-    /// the app's long description.
     pub long_description: Option<String>,
-    // Bundles for other binaries:
-    /// Configuration map for the apps to bundle.
-    #[serde(with = "Option<HashMap<String, FurnaceBundleSettings>>")]
-    pub bin: Option<HashMap<String, BundleSettings>>,
-    /// External binaries to add to the bundle.
-    ///
-    /// Note that each binary name should have the target platform's target triple appended,
-    /// as well as `.exe` for Windows.
-    /// For example, if you're bundling a sidecar called `sqlite3`, the bundler expects
-    /// a binary named `sqlite3-x86_64-unknown-linux-gnu` on linux,
-    /// and `sqlite3-x86_64-pc-windows-gnu.exe` on windows.
-    ///
-    /// Run `tauri build --help` for more info on targets.
-    ///
-    /// If you are building a universal binary for MacOS, the bundler expects
-    /// your external binary to also be universal, and named after the target triple,
-    /// e.g. `sqlite3-universal-apple-darwin`. See
-    /// <https://developer.apple.com/documentation/apple-silicon/building-a-universal-macos-binary>
-    pub external_bin: Option<Vec<String>>,
-    /// Debian-specific settings.
-    pub deb: DebianSettings,
-    /// MacOS-specific settings.
-    pub macos: MacOsSettings,
-    /// Windows-specific settings.
-    pub windows: WindowsSettings,
+    pub icon: Option<Vec<PathBuf>>,
+    pub resources: Option<Vec<PathBuf>>,
+    pub copyright: Option<String>,
+    pub category: Option<String>,
+    pub deb: Option<FurnaceDebianSettings>,
+    pub macos: Option<FurnaceMacosSettings>,
+    // external_bin:
 }
 
+/// The bundle settings of the BuildArtifact we're bundling.
+#[derive(Clone, Debug, Default, Deserialize, Serialize)]
+pub struct FurnaceBundleSettings {
+  /// the app's identifier.
+  pub identifier: Option<String>,
+  /// The app's publisher. Defaults to the second element in the identifier string.
+  /// Currently maps to the Manufacturer property of the Windows Installer.
+  pub publisher: Option<String>,
+  /// the app's icon list.
+  pub icon: Option<Vec<String>>,
+  /// the app's resources to bundle.
+  ///
+  /// each item can be a path to a file or a path to a folder.
+  ///
+  /// supports glob patterns.
+  pub resources: Option<Vec<String>>,
+  /// the app's copyright.
+  pub copyright: Option<String>,
+  /// the app's category.
+  pub category: Option<AppCategory>,
+  /// the app's short description.
+  pub short_description: Option<String>,
+  /// the app's long description.
+  pub long_description: Option<String>,
+  // Bundles for other binaries:
+  /// Configuration map for the apps to bundle.
+  pub bin: Option<HashMap<String, BundleSettings>>,
+  /// External binaries to add to the bundle.
+  ///
+  /// Note that each binary name should have the target platform's target triple appended,
+  /// as well as `.exe` for Windows.
+  /// For example, if you're bundling a sidecar called `sqlite3`, the bundler expects
+  /// a binary named `sqlite3-x86_64-unknown-linux-gnu` on linux,
+  /// and `sqlite3-x86_64-pc-windows-gnu.exe` on windows.
+  ///
+  /// Run `tauri build --help` for more info on targets.
+  ///
+  /// If you are building a universal binary for MacOS, the bundler expects
+  /// your external binary to also be universal, and named after the target triple,
+  /// e.g. `sqlite3-universal-apple-darwin`. See
+  /// <https://developer.apple.com/documentation/apple-silicon/building-a-universal-macos-binary>
+  pub external_bin: Option<Vec<String>>,
+  /// Debian-specific settings.
+  pub deb: tauri_bundler::DebianSettings,
+  /// MacOS-specific settings.
+  pub macos: tauri_bundler::MacOsSettings,
+  /// Windows-specific settings.
+  pub windows: tauri_bundler::WindowsSettings,
+}
+
+
+
 #[derive(Serialize, Deserialize, Debug)]
-#[serde(remote = "PackageSettings")]
 pub struct FurnacePackageSettings {
     /// the package's product name.
     pub name: Option<String>,
@@ -209,14 +227,13 @@ pub struct FurnacePackageSettings {
 }
 
 #[derive(Serialize, Deserialize, Debug)]
-#[serde(remote = "DebianSettings")]
 struct FurnaceDebianSettings {
     // OS-specific settings:
     /// the list of debian dependencies.
     pub depends: Option<Vec<String>>,
-    /// List of custom files to add to the deb package.
-    /// Maps the path on the debian package to the path of the file to include (relative to the current working directory).
-    pub files: HashMap<PathBuf, PathBuf>,
+    //   /// List of custom files to add to the deb package.
+    //   /// Maps the path on the debian package to the path of the file to include (relative to the current working directory).
+    //   pub files: HashMap<PathBuf, PathBuf>,
     /// Path to a custom desktop file Handlebars template.
     ///
     /// Available variables: `categories`, `comment` (optional), `exec`, `icon` and `name`.
@@ -238,8 +255,7 @@ Type=Application"]
 }
 
 #[derive(Serialize, Deserialize, Debug)]
-#[serde(remote = "MacOsSettings")]
-struct FurnaceMacOsSettings {
+struct FurnaceMacosSettings {
     /// MacOS frameworks that need to be bundled with the app.
     ///
     /// Each string can either be the name of a framework (without the `.framework` extension, e.g. `"SDL2"`),
@@ -261,66 +277,14 @@ struct FurnaceMacOsSettings {
     ///
     /// This allows communication to the outside world e.g. a web server you're shipping.
     pub exception_domain: Option<String>,
-    /// Code signing identity.
-    pub signing_identity: Option<String>,
-    /// Provider short name for notarization.
-    pub provider_short_name: Option<String>,
-    /// Path to the entitlements.plist file.
-    pub entitlements: Option<String>,
-    /// Path to the Info.plist file for the bundle.
-    pub info_plist_path: Option<PathBuf>,
-}
-
-// TODO: RIght now, these categories correspond to LSApplicationCategoryType
-// values for OS X.  There are also some additional GNOME registered categories
-// that don't fit these; we should add those here too.
-/// The possible app categories.
-/// Corresponds to `LSApplicationCategoryType` on macOS and the GNOME desktop categories on Debian.
-#[allow(missing_docs)]
-#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
-#[serde(remote = "AppCategory")]
-#[non_exhaustive]
-pub enum FurnaceAppCategory {
-    Business,
-    DeveloperTool,
-    Education,
-    Entertainment,
-    Finance,
-    Game,
-    ActionGame,
-    AdventureGame,
-    ArcadeGame,
-    BoardGame,
-    CardGame,
-    CasinoGame,
-    DiceGame,
-    EducationalGame,
-    FamilyGame,
-    KidsGame,
-    MusicGame,
-    PuzzleGame,
-    RacingGame,
-    RolePlayingGame,
-    SimulationGame,
-    SportsGame,
-    StrategyGame,
-    TriviaGame,
-    WordGame,
-    GraphicsAndDesign,
-    HealthcareAndFitness,
-    Lifestyle,
-    Medical,
-    Music,
-    News,
-    Photography,
-    Productivity,
-    Reference,
-    SocialNetworking,
-    Sports,
-    Travel,
-    Utility,
-    Video,
-    Weather,
+    //   /// Code signing identity.
+    //   pub signing_identity: Option<String>,
+    //   /// Provider short name for notarization.
+    //   pub provider_short_name: Option<String>,
+    //   /// Path to the entitlements.plist file.
+    //   pub entitlements: Option<String>,
+    //   /// Path to the Info.plist file for the bundle.
+    //   pub info_plist_path: Option<PathBuf>,
 }
 
 fn main() -> Result<()> {
